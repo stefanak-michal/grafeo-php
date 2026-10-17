@@ -47,4 +47,4 @@ jobs:
       - name: Run PHPUnit
         env:
           GRAFEO_LIB_PATH: ${{ github.workspace }}/target/release/libgrafeo_c.so
-        run: vendor/bin/phpunit tests --colors=always
+        run: vendor/bin/phpunit test --colors=always
