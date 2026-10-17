@@ -1,0 +1,38 @@
+name: PHPUnit
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phpunit:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build Grafeo C Library via Docker
+        run: |
+          docker run --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp rust:1.99 cargo build --release -p grafeo-c --features full
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: ffi
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Run PHPUnit
+        env:
+          GRAFEO_LIB_PATH: ${{ github.workspace }}/target/release/libgrafeo_c.so
+        run: vendor/bin/phpunit tests --colors=always
