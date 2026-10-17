@@ -19,26 +19,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Download and Extract Grafeo C Library
-        run: |
-          mkdir -p target/release
-          GRAFEO_VERSION="v0.5.44" # Match your desired version tag
-          URL="https://github.com/GrafeoDB/grafeo/releases/download/${GRAFEO_VERSION}/grafeo-${GRAFEO_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
-          
-          echo "Downloading from $URL..."
-          curl -L -o grafeo.tar.gz "$URL"
-          
-          echo "Extracting archive..."
-          tar -xzf grafeo.tar.gz
-          
-          echo "Copying libgrafeo_c.so to target/release..."
-          cp "grafeo-${GRAFEO_VERSION}-x86_64-unknown-linux-gnu/libgrafeo_c.so" target/release/libgrafeo_c.so
+      - name: Checkout Grafeo Core Source
+        uses: actions/checkout@v4
+        with:
+          repository: GrafeoDB/grafeo
+          ref: v0.5.44
+          path: grafeo-core
 
-          # Verify the file actually exists and is not empty
-          if [ ! -f "target/release/libgrafeo_c.so" ]; then
-            echo "Error: libgrafeo_c.so was not found in target/release/!"
-            exit 1
-          fi
+      - name: Build Grafeo C Library via Docker with Full Features
+        run: |
+          docker run --rm -v "${{ github.workspace }}/grafeo-core:/usr/src/myapp" -w /usr/src/myapp rust:latest cargo build --release -p grafeo-c --features full
+          
+          mkdir -p target/release
+          cp grafeo-core/target/release/libgrafeo_c.so target/release/libgrafeo_c.so
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
