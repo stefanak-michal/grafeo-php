@@ -19,9 +19,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Build Grafeo C Library via Docker
+      - name: Download and Extract Grafeo C Library
         run: |
-          docker run --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp rust:1.99 cargo build --release -p grafeo-c --features full
+          mkdir -p target/release
+          GRAFEO_VERSION="v0.5.44" # Match your desired version tag
+          URL="https://github.com/GrafeoDB/grafeo/releases/download/${GRAFEO_VERSION}/grafeo-${GRAFEO_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          
+          echo "Downloading from $URL..."
+          curl -L -o grafeo.tar.gz "$URL"
+          
+          echo "Extracting archive..."
+          tar -xzf grafeo.tar.gz
+          
+          # Move or find the .so file and put it into target/release/
+          # (Adjust the path below if the tarball structure places it inside a subfolder)
+          find . -name "libgrafeo_c.so" -exec cp {} target/release/ \;
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
