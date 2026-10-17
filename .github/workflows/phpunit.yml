@@ -31,9 +31,14 @@ jobs:
           echo "Extracting archive..."
           tar -xzf grafeo.tar.gz
           
-          # Move or find the .so file and put it into target/release/
-          # (Adjust the path below if the tarball structure places it inside a subfolder)
-          find . -name "libgrafeo_c.so" -exec cp {} target/release/ \;
+          echo "Copying libgrafeo_c.so to target/release..."
+          cp "grafeo-${GRAFEO_VERSION}-x86_64-unknown-linux-gnu/libgrafeo_c.so" target/release/libgrafeo_c.so
+
+          # Verify the file actually exists and is not empty
+          if [ ! -f "target/release/libgrafeo_c.so" ]; then
+            echo "Error: libgrafeo_c.so was not found in target/release/!"
+            exit 1
+          fi
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
