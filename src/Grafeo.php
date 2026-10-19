@@ -3,14 +3,22 @@
 namespace Grafeo;
 
 use FFI;
-use Exception;
+use JsonException;
 
-class Grafeo {
+/**
+ * @internal Experimental streaming not implemented.
+ */
+class Grafeo
+{
     private FFI $ffi;
     private ?FFI\CData $db = null;
 
-    public function __construct(string $libraryPath) {
-        $cdefs = "
+    /**
+     * @param string $libraryPath Path to the Grafeo shared library (dll, so, etc.).
+     */
+    public function __construct(string $libraryPath)
+    {
+        $this->ffi = FFI::cdef("
             typedef int GrafeoStatus;
             typedef int GrafeoIsolationLevel;
 
@@ -27,7 +35,6 @@ class Grafeo {
             GrafeoDatabase* grafeo_open_memory(void);
             GrafeoDatabase* grafeo_open(const char* path);
             GrafeoDatabase* grafeo_open_read_only(const char* path);
-            GrafeoDatabase* grafeo_open_single_file(const char* path);
             GrafeoStatus    grafeo_close(GrafeoDatabase* db);
             void            grafeo_free_database(GrafeoDatabase* db);
             const char*     grafeo_version(void);
@@ -35,313 +42,451 @@ class Grafeo {
             void  grafeo_set_cdc_enabled(GrafeoDatabase* db, bool enabled);
             bool  grafeo_is_cdc_enabled(GrafeoDatabase* db);
 
-            GrafeoResult* grafeo_execute(GrafeoDatabase* db, const char* query);
-            GrafeoResult* grafeo_execute_with_params(GrafeoDatabase* db, const char* query, const char* params_json);
-            GrafeoResult* grafeo_execute_cypher(GrafeoDatabase* db, const char* query);
-            GrafeoResult* grafeo_execute_cypher_with_params(GrafeoDatabase* db, const char* query, const char* params_json);
-            GrafeoResult* grafeo_execute_gremlin(GrafeoDatabase* db, const char* query);
-            GrafeoResult* grafeo_execute_gremlin_with_params(GrafeoDatabase* db, const char* query, const char* params_json);
-            GrafeoResult* grafeo_execute_graphql(GrafeoDatabase* db, const char* query);
-            GrafeoResult* grafeo_execute_graphql_with_params(GrafeoDatabase* db, const char* query, const char* params_json);
-            GrafeoResult* grafeo_execute_sparql(GrafeoDatabase* db, const char* query);
-            GrafeoResult* grafeo_execute_sparql_with_params(GrafeoDatabase* db, const char* query, const char* params_json);
-            GrafeoResult* grafeo_execute_sql(GrafeoDatabase* db, const char* query);
-            GrafeoResult* grafeo_execute_sql_with_params(GrafeoDatabase* db, const char* query, const char* params_json);
             GrafeoResult* grafeo_execute_language(GrafeoDatabase* db, const char* language, const char* query, const char* params_json);
 
             const char* grafeo_result_json(const GrafeoResult* result);
             size_t      grafeo_result_row_count(const GrafeoResult* result);
             double      grafeo_result_execution_time_ms(const GrafeoResult* result);
-            uint64_t    grafeo_result_rows_scanned(const GrafeoResult* result);
+            unsigned long long grafeo_result_rows_scanned(const GrafeoResult* result);
             const char* grafeo_result_nodes_json(const GrafeoResult* result);
             const char* grafeo_result_edges_json(const GrafeoResult* result);
             void        grafeo_free_result(GrafeoResult* result);
-
-            GrafeoStream* grafeo_stream_open(GrafeoDatabase* db, const char* query);
-            char*         grafeo_stream_columns_json(const GrafeoStream* stream);
-            GrafeoStatus  grafeo_stream_next_row_json(GrafeoStream* stream, char** out_json);
-            void          grafeo_stream_free(GrafeoStream* stream);
 
             GrafeoStatus  grafeo_set_schema(GrafeoDatabase* db, const char* name);
             GrafeoStatus  grafeo_reset_schema(GrafeoDatabase* db);
             const char*   grafeo_current_schema(const GrafeoDatabase* db);
 
-            uint64_t     grafeo_create_node(GrafeoDatabase* db, const char* labels_json, const char* properties_json);
-            GrafeoStatus grafeo_get_node(GrafeoDatabase* db, uint64_t id, GrafeoNode** out);
-            int32_t      grafeo_delete_node(GrafeoDatabase* db, uint64_t id);
-            GrafeoStatus grafeo_set_node_property(GrafeoDatabase* db, uint64_t id, const char* key, const char* value_json);
-            int32_t      grafeo_remove_node_property(GrafeoDatabase* db, uint64_t id, const char* key);
-            int32_t      grafeo_add_node_label(GrafeoDatabase* db, uint64_t id, const char* label);
-            int32_t      grafeo_remove_node_label(GrafeoDatabase* db, uint64_t id, const char* label);
-            char*        grafeo_get_node_labels(GrafeoDatabase* db, uint64_t id);
+            unsigned long long grafeo_create_node(GrafeoDatabase* db, const char* labels_json, const char* properties_json);
+            GrafeoStatus       grafeo_get_node(GrafeoDatabase* db, unsigned long long id, GrafeoNode** out);
+            int                grafeo_delete_node(GrafeoDatabase* db, unsigned long long id);
+            GrafeoStatus       grafeo_set_node_property(GrafeoDatabase* db, unsigned long long id, const char* key, const char* value_json);
+            int                grafeo_remove_node_property(GrafeoDatabase* db, unsigned long long id, const char* key);
+            int                grafeo_add_node_label(GrafeoDatabase* db, unsigned long long id, const char* label);
+            int                grafeo_remove_node_label(GrafeoDatabase* db, unsigned long long id, const char* label);
+            char*              grafeo_get_node_labels(GrafeoDatabase* db, unsigned long long id);
 
-            uint64_t    grafeo_node_id(const GrafeoNode* node);
-            const char* grafeo_node_labels_json(const GrafeoNode* node);
-            const char* grafeo_node_properties_json(const GrafeoNode* node);
-            void        grafeo_free_node(GrafeoNode* node);
+            unsigned long long grafeo_node_id(const GrafeoNode* node);
+            const char*        grafeo_node_labels_json(const GrafeoNode* node);
+            const char*        grafeo_node_properties_json(const GrafeoNode* node);
+            void               grafeo_free_node(GrafeoNode* node);
 
-            uint64_t     grafeo_create_edge(GrafeoDatabase* db, uint64_t source_id, uint64_t target_id, const char* edge_type, const char* properties_json);
-            GrafeoStatus grafeo_get_edge(GrafeoDatabase* db, uint64_t id, GrafeoEdge** out);
-            int32_t      grafeo_delete_edge(GrafeoDatabase* db, uint64_t id);
-            GrafeoStatus grafeo_set_edge_property(GrafeoDatabase* db, uint64_t id, const char* key, const char* value_json);
-            int32_t      grafeo_remove_edge_property(GrafeoDatabase* db, uint64_t id, const char* key);
+            unsigned long long grafeo_create_edge(GrafeoDatabase* db, unsigned long long source_id, unsigned long long target_id, const char* edge_type, const char* properties_json);
+            GrafeoStatus       grafeo_get_edge(GrafeoDatabase* db, unsigned long long id, GrafeoEdge** out);
+            int                grafeo_delete_edge(GrafeoDatabase* db, unsigned long long id);
+            GrafeoStatus       grafeo_set_edge_property(GrafeoDatabase* db, unsigned long long id, const char* key, const char* value_json);
+            int                grafeo_remove_edge_property(GrafeoDatabase* db, unsigned long long id, const char* key);
 
-            uint64_t    grafeo_edge_id(const GrafeoEdge* edge);
-            uint64_t    grafeo_edge_source_id(const GrafeoEdge* edge);
-            uint64_t    grafeo_edge_target_id(const GrafeoEdge* edge);
-            const char* grafeo_edge_type(const GrafeoEdge* edge);
-            const char* grafeo_edge_properties_json(const GrafeoEdge* edge);
-            void        grafeo_free_edge(GrafeoEdge* edge);
+            unsigned long long grafeo_edge_id(const GrafeoEdge* edge);
+            unsigned long long grafeo_edge_source_id(const GrafeoEdge* edge);
+            unsigned long long grafeo_edge_target_id(const GrafeoEdge* edge);
+            const char*        grafeo_edge_type(const GrafeoEdge* edge);
+            const char*        grafeo_edge_properties_json(const GrafeoEdge* edge);
+            void               grafeo_free_edge(GrafeoEdge* edge);
 
-            GrafeoStatus grafeo_create_property_index(GrafeoDatabase* db, const char* property);
-            int32_t      grafeo_drop_property_index(GrafeoDatabase* db, const char* property);
-            int32_t      grafeo_has_property_index(GrafeoDatabase* db, const char* property);
+            GrafeoStatus       grafeo_create_property_index(GrafeoDatabase* db, const char* property);
+            int                grafeo_drop_property_index(GrafeoDatabase* db, const char* property);
+            int                grafeo_has_property_index(GrafeoDatabase* db, const char* property);
+            GrafeoStatus       grafeo_find_nodes_by_property(GrafeoDatabase* db, const char* property, const char* value_json, uint64_t** out_ids, size_t* out_count);
 
-            size_t grafeo_node_count(GrafeoDatabase* db);
-            size_t grafeo_edge_count(GrafeoDatabase* db);
+            GrafeoStatus       grafeo_create_vector_index(GrafeoDatabase* db, const char* label, const char* property, int32_t dimensions, const char* metric, int32_t m, int32_t ef_construction);
+            int32_t            grafeo_drop_vector_index(GrafeoDatabase* db, const char* label, const char* property);
+            GrafeoStatus       grafeo_rebuild_vector_index(GrafeoDatabase* db, const char* label, const char* property);
+            GrafeoStatus       grafeo_vector_search(GrafeoDatabase* db, const char* label, const char* property, const float* query, size_t query_len, size_t k, int32_t ef, uint64_t** out_ids, float** out_distances, size_t* out_count);
+            GrafeoStatus       grafeo_mmr_search(GrafeoDatabase* db, const char* label, const char* property, const float* query, size_t query_len, size_t k, int32_t fetch_k, float lambda, int32_t ef, uint64_t** out_ids, float** out_distances, size_t* out_count);
+            GrafeoStatus       grafeo_batch_create_nodes(GrafeoDatabase* db, const char* label, const char* property, const float* vectors, size_t vector_count, size_t dimensions, uint64_t** out_ids, size_t* out_count);
+            void               grafeo_free_vector_results(uint64_t* ids, float* distances, size_t count);
+
+            size_t             grafeo_node_count(GrafeoDatabase* db);
+            size_t             grafeo_edge_count(GrafeoDatabase* db);
 
             GrafeoTransaction* grafeo_begin_transaction(GrafeoDatabase* db);
             GrafeoTransaction* grafeo_begin_transaction_with_isolation(GrafeoDatabase* db, GrafeoIsolationLevel isolation);
-            GrafeoResult*      grafeo_transaction_execute(GrafeoTransaction* tx, const char* query);
-            GrafeoResult*      grafeo_transaction_execute_with_params(GrafeoTransaction* tx, const char* query, const char* params_json);
             GrafeoResult*      grafeo_transaction_execute_language(GrafeoTransaction* tx, const char* language, const char* query, const char* params_json);
             GrafeoStatus       grafeo_commit(GrafeoTransaction* tx);
             GrafeoStatus       grafeo_rollback(GrafeoTransaction* tx);
             void               grafeo_free_transaction(GrafeoTransaction* tx);
 
-            char*        grafeo_info(GrafeoDatabase* db);
-            GrafeoStatus grafeo_save(GrafeoDatabase* db, const char* path);
-            GrafeoStatus grafeo_wal_checkpoint(GrafeoDatabase* db);
-            GrafeoStatus grafeo_compact(GrafeoDatabase* db);
+            char*              grafeo_info(GrafeoDatabase* db);
+            GrafeoStatus       grafeo_save(GrafeoDatabase* db, const char* path);
+            GrafeoStatus       grafeo_wal_checkpoint(GrafeoDatabase* db);
+            GrafeoStatus       grafeo_compact(GrafeoDatabase* db);
 
-            void grafeo_free_string(char* s);
-        ";
-
-        $this->ffi = FFI::cdef($cdefs, $libraryPath);
+            void               grafeo_free_string(char* s);
+        ", $libraryPath);
     }
 
-    public function getLastError(): string {
-        $err = $this->ffi->grafeo_last_error();
-        if (!$err) return "Unknown error";
-        return is_string($err) ? $err : FFI::string($err);
+    // todo property index group
+    // todo vector operations
+
+    /**
+     * Get the last error message from the Grafeo library.
+     *
+     * @return ?string The last error message.
+     */
+    public function getLastError(): ?string
+    {
+        return $this->ffi->grafeo_last_error();
     }
-    
-    public function clearError(): void {
+
+    /**
+     * Clear the last error message in the Grafeo library.
+     */
+    public function clearError(): void
+    {
         $this->ffi->grafeo_clear_error();
     }
 
-    public function version(): string {
+    /**
+     * Get the version of the Grafeo library.
+     *
+     * @return string The version string.
+     */
+    public function version(): string
+    {
         $ver = $this->ffi->grafeo_version();
         return is_string($ver) ? $ver : FFI::string($ver);
     }
 
     // --- Lifecycle ---
 
-    public function openMemory(): void {
+    /**
+     * Open an in-memory graph database.
+     *
+     * @link https://grafeo.dev/user-guide/persistence/in-memory/
+     * @internal Data will not persist after the script ends.
+     */
+    public function openMemory(): bool
+    {
         $this->db = $this->ffi->grafeo_open_memory();
-        if (!$this->db) {
-            throw new Exception("Failed to open in-memory database: " . $this->getLastError());
-        }
+        return $this->db != null;
     }
 
-    public function open(string $path): void {
+    /**
+     * Open a graph database at the specified path.
+     *
+     * @link https://grafeo.dev/user-guide/persistence/persistent/
+     * @internal File access uses exclusive lock.
+     * @param string $path Path to the database file.
+     */
+    public function open(string $path): bool
+    {
         $this->db = $this->ffi->grafeo_open($path);
-        if (!$this->db) {
-            throw new Exception("Failed to open database at {$path}: " . $this->getLastError());
-        }
+        return $this->db !== null;
     }
 
-    public function openReadOnly(string $path): void {
+    /**
+     * Open a graph database in read-only mode at the specified path.
+     *
+     * @link https://grafeo.dev/user-guide/persistence/persistent/
+     * @internal File access uses exclusive lock.
+     * @param string $path Path to the database file.
+     */
+    public function openReadOnly(string $path): bool
+    {
         $this->db = $this->ffi->grafeo_open_read_only($path);
-        if (!$this->db) {
-            throw new Exception("Failed to open read-only database at {$path}: " . $this->getLastError());
-        }
+        return $this->db !== null;
     }
 
-    public function openSingleFile(string $path): void {
+    #[\Deprecated('same as open(), removed in 0.7.0')]
+    public function openSingleFile(string $path): bool
+    {
         $this->db = $this->ffi->grafeo_open_single_file($path);
-        if (!$this->db) {
-            throw new Exception("Failed to open single file database at {$path}: " . $this->getLastError());
-        }
+        return $this->db !== null;
     }
 
-    public function close(): void {
+    /**
+     * Close the graph database.
+     */
+    public function close(): void
+    {
         if ($this->db) {
             $status = $this->ffi->grafeo_close($this->db);
-            if ($status !== 0) {
-                throw new Exception("Error closing database: " . $this->getLastError());
+            if (Status::tryFrom((int)$status) === Status::OK) {
+                $this->ffi->grafeo_free_database($this->db);
             }
-            $this->ffi->grafeo_free_database($this->db);
             $this->db = null;
         }
     }
 
     // --- CDC ---
 
-    public function setCdcEnabled(bool $enabled): void {
+    /**
+     * Enable or disable Change Data Capture (CDC) in the database.
+     *
+     * @link https://grafeo.dev/user-guide/cdc/
+     * @param bool $enabled True to enable CDC, false to disable.
+     */
+    public function setCdcEnabled(bool $enabled): void
+    {
         $this->ffi->grafeo_set_cdc_enabled($this->db, $enabled);
     }
 
-    public function isCdcEnabled(): bool {
+    /**
+     * Check if Change Data Capture (CDC) is enabled in the database.
+     *
+     * @link https://grafeo.dev/user-guide/cdc/
+     */
+    public function isCdcEnabled(): bool
+    {
         return (bool)$this->ffi->grafeo_is_cdc_enabled($this->db);
     }
 
     // --- Query Execution ---
 
-    public function execute(string $query): ?string {
-        $result = $this->ffi->grafeo_execute($this->db, $query);
-        return $this->processResult($result);
+    /**
+     * Execute a query in a specific language.
+     *
+     * @param string $query The query to execute.
+     * @param ?array $params The parameters for the query.
+     * @param Language $language Query language, default is GQL.
+     * @return ?Result Result instance or null on error.
+     * @throws JsonException
+     */
+    public function execute(string $query, ?array $params = null, Language $language = Language::GQL): ?Result
+    {
+        $pointer = $this->ffi->grafeo_execute_language(
+            $this->db,
+            $language->value,
+            $query,
+            $params ? json_encode($params, JSON_THROW_ON_ERROR) : null
+        );
+        return $pointer ? new Result($this->ffi, $pointer) : null;
     }
 
-    public function executeWithParams(string $query, string $paramsJson): ?string {
-        $result = $this->ffi->grafeo_execute_with_params($this->db, $query, $paramsJson);
-        return $this->processResult($result);
+    // --- Node CRUD ---
+
+    /**
+     * @return int Returns new node ID, or UINT64_MAX on error.
+     * @throws JsonException
+     */
+    public function createNode(array $labels, ?array $properties): int
+    {
+        return (int)$this->ffi->grafeo_create_node(
+            $this->db,
+            json_encode($labels, JSON_THROW_ON_ERROR),
+            json_encode($properties, JSON_THROW_ON_ERROR)
+        );
     }
 
-    public function executeCypher(string $query): ?string {
-        $result = $this->ffi->grafeo_execute_cypher($this->db, $query);
-        return $this->processResult($result);
-    }
-
-    public function executeCypherWithParams(string $query, string $paramsJson): ?string {
-        $result = $this->ffi->grafeo_execute_cypher_with_params($this->db, $query, $paramsJson);
-        return $this->processResult($result);
-    }
-
-    public function executeGremlin(string $query): ?string {
-        $result = $this->ffi->grafeo_execute_gremlin($this->db, $query);
-        return $this->processResult($result);
-    }
-
-    public function executeGremlinWithParams(string $query, string $paramsJson): ?string {
-        $result = $this->ffi->grafeo_execute_gremlin_with_params($this->db, $query, $paramsJson);
-        return $this->processResult($result);
-    }
-
-    public function executeGraphql(string $query): ?string {
-        $result = $this->ffi->grafeo_execute_graphql($this->db, $query);
-        return $this->processResult($result);
-    }
-
-    public function executeGraphqlWithParams(string $query, string $paramsJson): ?string {
-        $result = $this->ffi->grafeo_execute_graphql_with_params($this->db, $query, $paramsJson);
-        return $this->processResult($result);
-    }
-
-    public function executeSparql(string $query): ?string {
-        $result = $this->ffi->grafeo_execute_sparql($this->db, $query);
-        return $this->processResult($result);
-    }
-
-    public function executeSparqlWithParams(string $query, string $paramsJson): ?string {
-        $result = $this->ffi->grafeo_execute_sparql_with_params($this->db, $query, $paramsJson);
-        return $this->processResult($result);
-    }
-
-    public function executeSql(string $query): ?string {
-        $result = $this->ffi->grafeo_execute_sql($this->db, $query);
-        return $this->processResult($result);
-    }
-
-    public function executeSqlWithParams(string $query, string $paramsJson): ?string {
-        $result = $this->ffi->grafeo_execute_sql_with_params($this->db, $query, $paramsJson);
-        return $this->processResult($result);
-    }
-
-    public function executeLanguage(string $language, string $query, ?string $paramsJson = null): ?string {
-        $result = $this->ffi->grafeo_execute_language($this->db, $language, $query, $paramsJson);
-        return $this->processResult($result);
-    }
-
-    private function processResult(?FFI\CData $result): ?string {
-        if (!$result) {
-            throw new Exception("Query execution error: " . $this->getLastError());
+    /**
+     * @throws JsonException
+     */
+    public function getNode(int $id): ?Node
+    {
+        $nodePtr = $this->ffi->new("GrafeoNode*");
+        $status = Status::from((int)$this->ffi->grafeo_get_node($this->db, $id, FFI::addr($nodePtr)));
+        if ($status !== Status::OK) {
+            return null;
         }
-        $jsonPtr = $this->ffi->grafeo_result_json($result);
-        $json = null;
-        if ($jsonPtr) {
-            $json = is_string($jsonPtr) ? $jsonPtr : FFI::string($jsonPtr);
-        }
-        $this->ffi->grafeo_free_result($result);
-        return $json;
+
+        $data = [
+            'id' => $id,
+            'labels' => json_decode($this->ffi->grafeo_node_labels_json($nodePtr), true, JSON_THROW_ON_ERROR),
+            'properties' => json_decode($this->ffi->grafeo_node_properties_json($nodePtr), true, JSON_THROW_ON_ERROR),
+        ];
+        $this->ffi->grafeo_free_node($nodePtr);
+        return new Node($data);
     }
 
-    // --- Node & Edge CRUD ---
-
-    public function createNode(string $labelsJson, string $propertiesJson): int {
-        return (int)$this->ffi->grafeo_create_node($this->db, $labelsJson, $propertiesJson);
+    /**
+     * @throws JsonException
+     */
+    public function setNodeProperty(int $id, string $key, mixed $value): Status
+    {
+        return Status::from((int)$this->ffi->grafeo_set_node_property(
+            $this->db,
+            $id,
+            $key,
+            json_encode($value, JSON_THROW_ON_ERROR)
+        ));
     }
 
-    public function createEdge(int $sourceId, int $targetId, string $edgeType, string $propertiesJson): int {
-        return (int)$this->ffi->grafeo_create_edge($this->db, $sourceId, $targetId, $edgeType, $propertiesJson);
+    /**
+     * * @return int Returns 1 if deleted, 0 if not found, -1 on null pointer.
+     */
+    public function removeNodeProperty(int $id, string $key): int
+    {
+        return (int)$this->ffi->grafeo_remove_node_property($this->db, $id, $key);
     }
 
-    public function deleteNode(int $id): int {
+    /**
+     * * @return int Returns 1 if deleted, 0 if not found, -1 on null pointer.
+     */
+    public function addNodeLabel(int $id, string $label): int
+    {
+        return (int)$this->ffi->grafeo_add_node_label($this->db, $id, $label);
+    }
+
+    /**
+     * * @return int Returns 1 if deleted, 0 if not found, -1 on null pointer.
+     */
+    public function removeNodeLabel(int $id, string $label): int
+    {
+        return (int)$this->ffi->grafeo_remove_node_label($this->db, $id, $label);
+    }
+
+    /**
+     * @return int Returns 1 if deleted, 0 if not found, -1 on null pointer.
+     */
+    public function deleteNode(int $id): int
+    {
         return (int)$this->ffi->grafeo_delete_node($this->db, $id);
     }
 
-    public function deleteEdge(int $id): int {
+    // --- Edge CRUD ---
+
+    /**
+     * @param int $sourceId The ID of the source node.
+     * @param int $targetId The ID of the target node.
+     * @return int Returns new edge ID, or UINT64_MAX on error.
+     * @throws JsonException
+     */
+    public function createEdge(int $sourceId, int $targetId, string $edgeType, ?string $properties): int
+    {
+        return (int)$this->ffi->grafeo_create_edge(
+            $this->db,
+            $sourceId,
+            $targetId,
+            $edgeType,
+            json_encode($properties, JSON_THROW_ON_ERROR)
+        );
+    }
+
+    /**
+     * @throws JsonException
+     */
+    public function getEdge(int $id): ?Edge
+    {
+        $edgePtr = $this->ffi->new("GrafeoEdge*");
+        $status = Status::from((int)$this->ffi->grafeo_get_edge($this->db, $id, FFI::addr($edgePtr)));
+        if ($status !== Status::OK) {
+            return null;
+        }
+
+        $data = [
+            'id' => $id,
+            'source_id' => $this->ffi->grafeo_edge_source_id($edgePtr),
+            'target_id' => $this->ffi->grafeo_edge_target_id($edgePtr),
+            'type' => $this->ffi->grafeo_edge_type($edgePtr),
+            'properties' => json_decode($this->ffi->grafeo_edge_properties_json($edgePtr), true, JSON_THROW_ON_ERROR),
+        ];
+        $this->ffi->grafeo_free_edge($edgePtr);
+        return new Edge($data);
+    }
+
+    /**
+     * @throws JsonException
+     */
+    public function setEdgeProperty(int $id, string $key, mixed $value): Status
+    {
+        return Status::from((int)$this->ffi->grafeo_set_edge_property(
+            $this->db,
+            $id,
+            $key,
+            json_encode($value, JSON_THROW_ON_ERROR)
+        ));
+    }
+
+    /**
+     * * @return int Returns 1 if deleted, 0 if not found, -1 on null pointer.
+     */
+    public function removeEdgeProperty(int $id, string $key): int
+    {
+        return (int)$this->ffi->grafeo_remove_edge_property($this->db, $id, $key);
+    }
+
+    /**
+     * @return int Returns 1 if deleted, 0 if not found, -1 on null pointer.
+     */
+    public function deleteEdge(int $id): int
+    {
         return (int)$this->ffi->grafeo_delete_edge($this->db, $id);
-    }
-
-    public function setNodeProperty(int $id, string $key, string $valueJson): int {
-        return (int)$this->ffi->grafeo_set_node_property($this->db, $id, $key, $valueJson);
-    }
-
-    public function setEdgeProperty(int $id, string $key, string $valueJson): int {
-        return (int)$this->ffi->grafeo_set_edge_property($this->db, $id, $key, $valueJson);
-    }
-
-    public function getNodeLabels(int $id): ?string {
-        $ptr = $this->ffi->grafeo_get_node_labels($this->db, $id);
-        if (!$ptr) return null;
-        $labels = FFI::string($ptr);
-        $this->ffi->grafeo_free_string($ptr);
-        return $labels;
     }
 
     // --- Schema Context ---
 
-    public function setSchema(string $name): int {
-        return (int)$this->ffi->grafeo_set_schema($this->db, $name);
+    public function setSchema(string $name): Status
+    {
+        return Status::from((int)$this->ffi->grafeo_set_schema($this->db, $name));
     }
 
-    public function resetSchema(): int {
-        return (int)$this->ffi->grafeo_reset_schema($this->db);
+    public function resetSchema(): Status
+    {
+        return Status::from((int)$this->ffi->grafeo_reset_schema($this->db));
     }
 
-    public function currentSchema(): ?string {
+    /**
+     * @return ?string The current schema, or null if not found.
+     */
+    public function currentSchema(): ?string
+    {
         $ptr = $this->ffi->grafeo_current_schema($this->db);
         return $ptr ? FFI::string($ptr) : null;
     }
 
     // --- Statistics & Admin ---
 
-    public function nodeCount(): int {
+    /**
+     * Get total number of nodes in the database.
+     */
+    public function nodeCount(): int
+    {
         return (int)$this->ffi->grafeo_node_count($this->db);
     }
 
-    public function edgeCount(): int {
+    /**
+     * Get total number of edges in the database.
+     */
+    public function edgeCount(): int
+    {
         return (int)$this->ffi->grafeo_edge_count($this->db);
     }
 
-    public function info(): ?string {
+    /**
+     * Get information about the database.
+     *
+     * @throws JsonException
+     */
+    public function info(): array
+    {
         $ptr = $this->ffi->grafeo_info($this->db);
-        if (!$ptr) return null;
-        $info = FFI::string($ptr);
+        $output = json_decode($ptr, true, JSON_THROW_ON_ERROR);
         $this->ffi->grafeo_free_string($ptr);
-        return $info;
+        return $output;
     }
 
-    public function save(string $path): int {
-        return (int)$this->ffi->grafeo_save($this->db, $path);
+    public function save(string $path): Status
+    {
+        return Status::from((int)$this->ffi->grafeo_save($this->db, $path));
     }
 
-    public function walCheckpoint(): int {
-        return (int)$this->ffi->grafeo_wal_checkpoint($this->db);
+    public function walCheckpoint(): Status
+    {
+        return Status::from((int)$this->ffi->grafeo_wal_checkpoint($this->db));
     }
 
-    public function compact(): int {
-        return (int)$this->ffi->grafeo_compact($this->db);
+    /**
+     * Compacts the database: writes a checkpoint of a persistent database (an in-memory or read-only one writes none)
+     * and drops the old versions no open transaction can see any more.
+     *
+     * @link https://grafeo.dev/api/c/#compact-store
+     * @return Status The result of the operation.
+     */
+    public function compact(): Status
+    {
+        return Status::from((int)$this->ffi->grafeo_compact($this->db));
+    }
+
+    // --- Transaction ---
+
+    public function beginTransaction(?Isolation $isolation = null): ?Transaction
+    {
+        $tx = $isolation
+            ? $this->ffi->grafeo_begin_transaction_with_isolation($this->db, $isolation->value)
+            : $this->ffi->grafeo_begin_transaction($this->db);
+        if (!$tx) {
+            return null;
+        }
+        return new Transaction($this->ffi, $tx);
     }
 }
