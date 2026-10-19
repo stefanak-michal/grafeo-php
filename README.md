@@ -2,11 +2,17 @@
 
 A lightweight PHP wrapper using FFI (Foreign Function Interface) to integrate the [Grafeo C API](https://grafeo.dev/api/c/?h=ffi) graph database into PHP applications.
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Z8Z5ABMLW)
+
 ## Building the Shared Library via Docker
 
-Attached files to Grafeo releases are not build with all features, which is required by this library. Therefore you have to build your own library file(s).
+Attached files to official Grafeo releases are not build with all features, which is required by this library. Therefore you have to build your own library file(s).
 
 Since Grafeo has a Rust core, you can compile the required shared library (`.so`, `.dylib`, or `.dll`) using Docker without installing Rust natively.
+
+First you need to clone [Grafeo repository](https://github.com/GrafeoDB/grafeo) and then switch to correct tag (based on release version).
+
+Second, from within Grafeo local copy directory run one of the following commands based on your environment. 
 
 ### For Windows (PowerShell):
 ```powershell
