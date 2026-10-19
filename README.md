@@ -41,11 +41,22 @@ docker run --rm -v "$PWD":/usr/src/myapp -w /usr/src/myapp rust:latest cargo bui
 * Grafeo is an embedded database. When opening a persistent file (`grafeo_open('/path/to/db')`), the underlying storage engine enforces an exclusive file lock to protect data integrity.
 * **Concurrency Issue:** Parallel PHP requests (such as multi-process web servers like PHP-FPM) trying to read or write to the *same* database file simultaneously will trigger a file-lock conflict / exception (`database file is locked by another process`).
 
+## Installation
+
+You can install this library via Composer:
+
+```bash
+composer require stefanak-michal/grafeo-php
+```
+
 ## Quick Start
 
 ```php
 <?php
-require_once 'Grafeo.php';
+
+require_once __DIR__ . '/vendor/autoload.php';
+
+use Grafeo\Grafeo;
 
 $grafeo = new Grafeo(__DIR__ . '/grafeo_c.dll');
 echo "Version: " . $grafeo->version() . "\n";
@@ -53,20 +64,18 @@ echo "Version: " . $grafeo->version() . "\n";
 // Open in-memory DB
 $grafeo->openMemory();
 
-// Create nodes & edges
-$id1 = $grafeo->createNode('["Person"]', '{"name":"Alice"}');
-$id2 = $grafeo->createNode('["Person"]', '{"name":"Bob"}');
-$grafeo->createEdge($id1,$id2, 'KNOWS', '{}');
+// Create nodes & edges using PHP arrays
+$aliceId = $grafeo->createNode(['Person'], ['name' => 'Alice', 'age' => 30]);
+$bobId = $grafeo->createNode(['Person'], ['name' => 'Bob', 'age' => 25]);
+$grafeo->createEdge($aliceId, $bobId, 'KNOWS', ['since' => 2024]);
 
-// Query
-$result = $grafeo->execute('MATCH (p:Person) RETURN p.name');
-echo $result;
+// Query database using GQL (default)
+$result = $grafeo->execute('MATCH (p:Person) RETURN p.name, p.age');
+if ($result) {
+    foreach ($result->fetch() as $row) {
+        echo "{$row['p.name']} ({$row['p.age']})\n";
+    }
+}
 
 $grafeo->close();
-```
-
-You can also install this library via composer with following command:
-
-```
-composer require stefanak-michal/grafeo-php
 ```
