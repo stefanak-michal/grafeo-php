@@ -95,6 +95,7 @@ class Grafeo
             GrafeoStatus       grafeo_mmr_search(GrafeoDatabase* db, const char* label, const char* property, const float* query, size_t query_len, size_t k, int32_t fetch_k, float lambda, int32_t ef, uint64_t** out_ids, float** out_distances, size_t* out_count);
             GrafeoStatus       grafeo_batch_create_nodes(GrafeoDatabase* db, const char* label, const char* property, const float* vectors, size_t vector_count, size_t dimensions, uint64_t** out_ids, size_t* out_count);
             void               grafeo_free_vector_results(uint64_t* ids, float* distances, size_t count);
+            void               grafeo_free_node_ids(uint64_t* ids, size_t count);
 
             size_t             grafeo_node_count(GrafeoDatabase* db);
             size_t             grafeo_edge_count(GrafeoDatabase* db);
@@ -114,9 +115,6 @@ class Grafeo
             void               grafeo_free_string(char* s);
         ", $libraryPath);
     }
-
-    // todo property index group
-    // todo vector operations
 
     /**
      * Get the last error message from the Grafeo library.
@@ -256,7 +254,7 @@ class Grafeo
     // --- Node CRUD ---
 
     /**
-     * @return int Returns new node ID, or UINT64_MAX on error.
+     * @return int Returns new node ID, or -1 (UINT64_MAX) on error.
      * @throws JsonException
      */
     public function createNode(array $labels, ?array $properties): int
@@ -338,10 +336,10 @@ class Grafeo
     /**
      * @param int $sourceId The ID of the source node.
      * @param int $targetId The ID of the target node.
-     * @return int Returns new edge ID, or UINT64_MAX on error.
+     * @return int Returns new edge ID, or -1 (UINT64_MAX) on error.
      * @throws JsonException
      */
-    public function createEdge(int $sourceId, int $targetId, string $edgeType, ?string $properties): int
+    public function createEdge(int $sourceId, int $targetId, string $edgeType, ?array $properties = null): int
     {
         return (int)$this->ffi->grafeo_create_edge(
             $this->db,
@@ -421,7 +419,311 @@ class Grafeo
     public function currentSchema(): ?string
     {
         $ptr = $this->ffi->grafeo_current_schema($this->db);
-        return $ptr ? FFI::string($ptr) : null;
+        if ($ptr === null) {
+            return null;
+        }
+        return is_string($ptr) ? $ptr : FFI::string($ptr);
+    }
+
+    // --- Property Indexes ---
+
+    /**
+     * @param string $property Property name to index.
+     */
+    public function createPropertyIndex(string $property): Status
+    {
+        return Status::from((int)$this->ffi->grafeo_create_property_index($this->db, $property));
+    }
+
+    /**
+     * @param string $property Property name.
+     * @return int Returns 1 if the index was dropped, 0 if none existed, -1 on error.
+     */
+    public function dropPropertyIndex(string $property): int
+    {
+        return (int)$this->ffi->grafeo_drop_property_index($this->db, $property);
+    }
+
+    /**
+     * @param string $property Property name.
+     * @return bool True if property index exists, false otherwise.
+     */
+    public function hasPropertyIndex(string $property): bool
+    {
+        return (bool)$this->ffi->grafeo_has_property_index($this->db, $property);
+    }
+
+    /**
+     * Find node IDs matching a property value using an index.
+     *
+     * @param string $property Property name.
+     * @param mixed $value Property value to search for.
+     * @return int[] Array of matching node IDs.
+     * @throws JsonException
+     */
+    public function findNodesByProperty(string $property, mixed $value): array
+    {
+        $outIds = $this->ffi->new("uint64_t*");
+        $outCount = $this->ffi->new("size_t");
+
+        $status = Status::from((int)$this->ffi->grafeo_find_nodes_by_property(
+            $this->db,
+            $property,
+            json_encode($value, JSON_THROW_ON_ERROR),
+            FFI::addr($outIds),
+            FFI::addr($outCount)
+        ));
+
+        if ($status !== Status::OK || $outCount->cdata === 0) {
+            return [];
+        }
+
+        $count = (int)$outCount->cdata;
+        $ids = [];
+        for ($i = 0; $i < $count; $i++) {
+            $ids[] = (int)$outIds[$i];
+        }
+
+        $this->ffi->grafeo_free_node_ids($outIds, $count);
+        return $ids;
+    }
+
+    // --- Vector Operations ---
+
+    /**
+     * Create a vector index on a specific node label and property.
+     *
+     * @param string $label Node label.
+     * @param string $property Property storing the vector.
+     * @param int $dimensions Vector dimensions (-1 for default).
+     * @param ?string $metric Distance metric: 'cosine', 'euclidean', 'dot', or null for default (cosine).
+     * @param int $m Number of bidirectional links per node in HNSW (-1 for default).
+     * @param int $efConstruction Size of dynamic candidate list during construction (-1 for default).
+     * @return Status The result status.
+     */
+    public function createVectorIndex(
+        string $label,
+        string $property,
+        int $dimensions = -1,
+        ?string $metric = null,
+        int $m = -1,
+        int $efConstruction = -1
+    ): Status {
+        return Status::from((int)$this->ffi->grafeo_create_vector_index(
+            $this->db,
+            $label,
+            $property,
+            $dimensions,
+            $metric,
+            $m,
+            $efConstruction
+        ));
+    }
+
+    /**
+     * @param string $label Node label.
+     * @param string $property Property name.
+     * @return int Returns 1 if dropped, 0 if none found, -1 on error.
+     */
+    public function dropVectorIndex(string $label, string $property): int
+    {
+        return (int)$this->ffi->grafeo_drop_vector_index($this->db, $label, $property);
+    }
+
+    /**
+     * @param string $label Node label.
+     * @param string $property Property name.
+     */
+    public function rebuildVectorIndex(string $label, string $property): Status
+    {
+        return Status::from((int)$this->ffi->grafeo_rebuild_vector_index($this->db, $label, $property));
+    }
+
+    /**
+     * Search for k nearest neighbors using a query vector.
+     *
+     * @param string $label Node label.
+     * @param string $property Property containing the vector.
+     * @param float[] $query Query vector.
+     * @param int $k Number of nearest neighbors to return.
+     * @param int $ef Size of the dynamic candidate list for search (-1 for default).
+     * @return array<int, array{id: int, distance: float}> Array of search results.
+     */
+    public function vectorSearch(
+        string $label,
+        string $property,
+        array $query,
+        int $k,
+        int $ef = -1
+    ): array {
+        $queryLen = count($query);
+        $cQuery = $this->ffi->new("float[$queryLen]");
+        $i = 0;
+        foreach ($query as $val) {
+            $cQuery[$i++] = (float)$val;
+        }
+
+        $outIds = $this->ffi->new("uint64_t*");
+        $outDistances = $this->ffi->new("float*");
+        $outCount = $this->ffi->new("size_t");
+
+        $status = Status::from((int)$this->ffi->grafeo_vector_search(
+            $this->db,
+            $label,
+            $property,
+            $cQuery,
+            $queryLen,
+            $k,
+            $ef,
+            FFI::addr($outIds),
+            FFI::addr($outDistances),
+            FFI::addr($outCount)
+        ));
+
+        if ($status !== Status::OK || $outCount->cdata === 0) {
+            return [];
+        }
+
+        $count = (int)$outCount->cdata;
+        $results = [];
+        for ($j = 0; $j < $count; $j++) {
+            $results[] = [
+                'id' => (int)$outIds[$j],
+                'distance' => (float)$outDistances[$j],
+            ];
+        }
+
+        $this->ffi->grafeo_free_vector_results($outIds, $outDistances, $count);
+        return $results;
+    }
+
+    /**
+     * Perform Maximal Marginal Relevance (MMR) search to balance relevance and diversity.
+     *
+     * @param string $label Node label.
+     * @param string $property Property containing the vector.
+     * @param float[] $query Query vector.
+     * @param int $k Number of diverse results to return.
+     * @param int $fetchK Number of nearest neighbors to fetch initially.
+     * @param float $lambda Trade-off parameter between relevance (1.0) and diversity (0.0).
+     * @param int $ef Size of the dynamic candidate list (-1 for default).
+     * @return array<int, array{id: int, distance: float}> Array of search results.
+     */
+    public function mmrSearch(
+        string $label,
+        string $property,
+        array $query,
+        int $k,
+        int $fetchK,
+        float $lambda,
+        int $ef = -1
+    ): array {
+        $queryLen = count($query);
+        $cQuery = $this->ffi->new("float[$queryLen]");
+        $i = 0;
+        foreach ($query as $val) {
+            $cQuery[$i++] = (float)$val;
+        }
+
+        $outIds = $this->ffi->new("uint64_t*");
+        $outDistances = $this->ffi->new("float*");
+        $outCount = $this->ffi->new("size_t");
+
+        $status = Status::from((int)$this->ffi->grafeo_mmr_search(
+            $this->db,
+            $label,
+            $property,
+            $cQuery,
+            $queryLen,
+            $k,
+            $fetchK,
+            $lambda,
+            $ef,
+            FFI::addr($outIds),
+            FFI::addr($outDistances),
+            FFI::addr($outCount)
+        ));
+
+        if ($status !== Status::OK || $outCount->cdata === 0) {
+            return [];
+        }
+
+        $count = (int)$outCount->cdata;
+        $results = [];
+        for ($j = 0; $j < $count; $j++) {
+            $results[] = [
+                'id' => (int)$outIds[$j],
+                'distance' => (float)$outDistances[$j],
+            ];
+        }
+
+        $this->ffi->grafeo_free_vector_results($outIds, $outDistances, $count);
+        return $results;
+    }
+
+    /**
+     * Batch create nodes with vector properties.
+     *
+     * @param string $label Node label.
+     * @param string $property Property name for the vector.
+     * @param array<array<float>>|float[] $vectors Array of vectors (or flat array of floats).
+     * @param int $dimensions Dimensions of each vector.
+     * @return int[] Array of created node IDs.
+     */
+    public function batchCreateNodes(
+        string $label,
+        string $property,
+        array $vectors,
+        int $dimensions
+    ): array {
+        if (empty($vectors)) {
+            return [];
+        }
+
+        $isNested = is_array(reset($vectors));
+        $vectorCount = $isNested ? count($vectors) : (int)(count($vectors) / $dimensions);
+        $totalElements = $vectorCount * $dimensions;
+
+        $cVectors = $this->ffi->new("float[$totalElements]");
+        $idx = 0;
+        if ($isNested) {
+            foreach ($vectors as $vec) {
+                foreach ($vec as $val) {
+                    $cVectors[$idx++] = (float)$val;
+                }
+            }
+        } else {
+            foreach ($vectors as $val) {
+                $cVectors[$idx++] = (float)$val;
+            }
+        }
+
+        $outIds = $this->ffi->new("uint64_t*");
+        $outCount = $this->ffi->new("size_t");
+
+        $status = Status::from((int)$this->ffi->grafeo_batch_create_nodes(
+            $this->db,
+            $label,
+            $property,
+            $cVectors,
+            $vectorCount,
+            $dimensions,
+            FFI::addr($outIds),
+            FFI::addr($outCount)
+        ));
+
+        if ($status !== Status::OK || $outCount->cdata === 0) {
+            return [];
+        }
+
+        $count = (int)$outCount->cdata;
+        $ids = [];
+        for ($j = 0; $j < $count; $j++) {
+            $ids[] = (int)$outIds[$j];
+        }
+
+        $this->ffi->grafeo_free_node_ids($outIds, $count);
+        return $ids;
     }
 
     // --- Statistics & Admin ---
@@ -450,7 +752,8 @@ class Grafeo
     public function info(): array
     {
         $ptr = $this->ffi->grafeo_info($this->db);
-        $output = json_decode($ptr, true, JSON_THROW_ON_ERROR);
+        $json = is_string($ptr) ? $ptr : FFI::string($ptr);
+        $output = json_decode($json, true, JSON_THROW_ON_ERROR);
         $this->ffi->grafeo_free_string($ptr);
         return $output;
     }

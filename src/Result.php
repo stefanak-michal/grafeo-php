@@ -60,7 +60,7 @@ class Result
      */
     public function edges(): array
     {
-        $json = $this->ffi->grafeo_result_nodes_json($this->pointer);
+        $json = $this->ffi->grafeo_result_edges_json($this->pointer);
         $decoded = json_decode($json, true, JSON_THROW_ON_ERROR);
         return array_map(fn(array $entity) => new Edge($entity), $decoded);
     }

@@ -2,48 +2,15 @@
 
 namespace Tests;
 
-use PHPUnit\Framework\TestCase;
 use Grafeo\Grafeo;
-use Exception;
+use Grafeo\Status;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 
-class GrafeoTest extends TestCase
+#[RunTestsInSeparateProcesses]
+#[PreserveGlobalState(false)]
+class GrafeoTest extends BaseTestCase
 {
-    private ?Grafeo $grafeo = null;
-    private string $libPath;
-
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        // Read path from environment variable set in CI, or fallback to local path
-        $envPath = getenv('GRAFEO_LIB_PATH');
-        $this->libPath = $envPath ? $envPath : (__DIR__ . DIRECTORY_SEPARATOR .
-        match (PHP_OS_FAMILY) {
-            'Windows' => 'grafeo_c.dll',
-            'Linux' => 'libgrafeo_c.so',
-            'Mac' => 'libgrafeo_c.dylib'
-        });
-
-        if (!file_exists($this->libPath)) {
-            $this->markTestSkipped("Grafeo shared library not found at: {$this->libPath}");
-        }
-
-        $this->grafeo = new Grafeo($this->libPath);
-    }
-
-    protected function tearDown(): void
-    {
-        // Ensure database handle is closed after each tests
-        if ($this->grafeo) {
-            try {
-                $this->grafeo->close();
-            } catch (Exception) {
-                // Ignore cleanup errors during teardown
-            }
-        }
-        parent::tearDown();
-    }
-
     public function testVersionReturnsString(): void
     {
         $version = $this->grafeo->version();
@@ -62,7 +29,7 @@ class GrafeoTest extends TestCase
     {
         $dbPath = __DIR__ . '/test_db.grafeo';
 
-        // Clean up any old tests file
+        // Clean up any old test file
         if (file_exists($dbPath)) {
             @unlink($dbPath);
         }
@@ -77,14 +44,101 @@ class GrafeoTest extends TestCase
             // Reopen the same file to verify persistence
             $grafeo2 = new Grafeo($this->libPath);
             $this->assertTrue($grafeo2->open($dbPath));
-
             $this->assertEquals(1, $grafeo2->nodeCount());
-
             $grafeo2->close();
         } finally {
-            // Clean up file storage
             if (file_exists($dbPath)) {
                 @unlink($dbPath);
+            }
+        }
+    }
+
+    public function testOpenReadOnly(): void
+    {
+        $dbPath = __DIR__ . '/test_ro_db.grafeo';
+
+        if (file_exists($dbPath)) {
+            @unlink($dbPath);
+        }
+
+        try {
+            // Create a persistent database first
+            $this->assertTrue($this->grafeo->open($dbPath));
+            $this->grafeo->createNode(['Item'], ['name' => 'Widget']);
+            $this->grafeo->close();
+
+            // Reopen in read-only mode
+            $roGrafeo = new Grafeo($this->libPath);
+            $this->assertTrue($roGrafeo->openReadOnly($dbPath));
+            $this->assertEquals(1, $roGrafeo->nodeCount());
+            $roGrafeo->close();
+        } finally {
+            if (file_exists($dbPath)) {
+                @unlink($dbPath);
+            }
+        }
+    }
+
+    public function testErrorHandling(): void
+    {
+        $this->assertTrue($this->grafeo->openMemory());
+
+        // Initially no error
+        $this->assertNull($this->grafeo->getLastError());
+
+        // Execute an invalid query to trigger an error
+        $result = $this->grafeo->execute('INVALID QUERY SYNTAX');
+        $this->assertNull($result);
+
+        $error = $this->grafeo->getLastError();
+        $this->assertNotNull($error);
+        $this->assertIsString($error);
+        $this->assertNotEmpty($error);
+
+        // Clear error
+        $this->grafeo->clearError();
+        $this->assertNull($this->grafeo->getLastError());
+    }
+
+    public function testInfo(): void
+    {
+        $this->assertTrue($this->grafeo->openMemory());
+        $info = $this->grafeo->info();
+
+        $this->assertIsArray($info);
+        $this->assertArrayHasKey('node_count', $info);
+        $this->assertArrayHasKey('edge_count', $info);
+        $this->assertArrayHasKey('version', $info);
+        $this->assertArrayHasKey('features', $info);
+        $this->assertIsArray($info['features']);
+    }
+
+    public function testSaveWalCheckpointAndCompact(): void
+    {
+        $this->assertTrue($this->grafeo->openMemory());
+        $this->grafeo->createNode(['Sample'], ['key' => 'value']);
+
+        $savePath = __DIR__ . '/test_save_admin.grafeo';
+        if (file_exists($savePath)) {
+            @unlink($savePath);
+        }
+
+        try {
+            // Test save
+            $status = $this->grafeo->save($savePath);
+            $this->assertSame(Status::OK, $status);
+            $this->assertFileExists($savePath);
+
+            // Test WAL checkpoint
+            $status = $this->grafeo->walCheckpoint();
+            $this->assertSame(Status::OK, $status);
+
+            // Test compact
+            $status = $this->grafeo->compact();
+            $this->assertSame(Status::OK, $status);
+        } finally {
+            if (file_exists($savePath)) {
+                @unlink($savePath);
             }
         }
     }
