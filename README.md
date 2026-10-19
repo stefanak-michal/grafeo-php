@@ -2,6 +2,8 @@
 
 A lightweight PHP wrapper using FFI (Foreign Function Interface) to integrate the [Grafeo C API](https://grafeo.dev/api/c/?h=ffi) graph database into PHP applications.
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Z8Z5ABMLW)
+
 ## Building the Shared Library via Docker
 
 Attached files to official Grafeo releases are not build with all features, which is required by this library. Therefore you have to build your own library file(s).
